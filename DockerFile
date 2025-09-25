@@ -1,10 +1,9 @@
 FROM python:3.12-slim
 
-
 WORKDIR /app
 COPY . /app
 
-RUN pip install --no-cache-dir playwright pytelegrambotapi websockets && \
+RUN pip install --no-cache-dir -r requirements.txt && \
     playwright install --with-deps chromium
 
-CMD ["python", "scraper.py"]
+CMD ["python", "app/scraper.py"]

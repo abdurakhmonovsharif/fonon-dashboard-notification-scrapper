@@ -1,13 +1,11 @@
-version: "3.9"
-
 services:
   fonon-bot:
     build: .
     container_name: fonon-bot
     restart: always
     working_dir: /app
-    command: ["python", "scraper.py"]
+    command: ["python", "app/scraper.py"]
     environment:
       - TZ=Asia/Tashkent
     volumes:
-      - .:/app   # agar kodni hostdan sinxronlashni xohlasangiz
+      - .:/app
