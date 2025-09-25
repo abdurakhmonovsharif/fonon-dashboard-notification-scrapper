@@ -5,9 +5,9 @@ services:
     build: .
     container_name: fonon-bot
     restart: always
-    working_dir: /
-    command: ["python", "scapper.py"]
+    working_dir: /app
+    command: ["python", "scraper.py"]
     environment:
       - TZ=Asia/Tashkent
     volumes:
-      - .:/   # sync host project root with container root
+      - .:/app   # agar kodni hostdan sinxronlashni xohlasangiz
