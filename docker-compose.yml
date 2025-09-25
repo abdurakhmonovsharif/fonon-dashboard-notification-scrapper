@@ -5,7 +5,7 @@ services:
     build: .
     container_name: fonon-bot
     restart: always
-    working_dir: /app
+    working_dir: /
     command: ["python", "scraper.py"]
     environment:
       - TZ=Asia/Tashkent
