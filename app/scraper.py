@@ -169,7 +169,7 @@ async def handle_order(order, token):
     # --- Caption tayyorlash ---
     caption = (
         f"📦 Buyurtma #{order_id}\n\n"
-        f"💰 Narxi: {format_number(total_price)} so'm\n"
+        f"💰 Narxi: {format_number(total_price,"comma")} so'm\n"
         f"🚚 Yetkazib berish: {delivery_type}\n"
         f"👤 Telefon: {format_phone(phone)}\n\n"
         f"📋 Mahsulotlar:\n"
