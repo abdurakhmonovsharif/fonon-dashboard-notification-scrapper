@@ -33,7 +33,29 @@ def format_phone(phone: str) -> str:
 
     # boshqa holatda original qaytariladi
     return phone
+
+def format_number(num: int, style: str = "comma") -> str:
+    """
+    Sonni formatlash funksiyasi.
+
+    :param num: format qilinadigan son (int yoki float).
+    :param style: 'comma' | 'space' | 'mln'
+    :return: formatlangan string
+    """
+
+    if style == "comma":  # 3,500,000
+        return "{:,}".format(num)
+
+    elif style == "space":  # 3 500 000
+        return "{:,.0f}".format(num).replace(",", " ")
+
+    elif style == "mln":  # 3.5 mln
+        return f"{num / 1_000_000:.1f} mln"
+
+    else:
+        raise ValueError("Noto‘g‘ri style! Faqat: 'comma', 'space', 'mln'")
 # --- State helpers ---
+
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
@@ -147,7 +169,7 @@ async def handle_order(order, token):
     # --- Caption tayyorlash ---
     caption = (
         f"📦 Buyurtma #{order_id}\n\n"
-        f"💰 Narxi: {total_price} so'm\n"
+        f"💰 Narxi: {format_number(total_price)} so'm\n"
         f"🚚 Yetkazib berish: {delivery_type}\n"
         f"👤 Telefon: {format_phone(phone)}\n\n"
         f"📋 Mahsulotlar:\n"
