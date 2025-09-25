@@ -210,7 +210,7 @@ async def monitor():
                 state["last_order_id"] = latest_id
                 save_state(state)
 
-        await asyncio.sleep(180)  # 3 minut kutish
+        await asyncio.sleep(60)  # 1 minut kutish
 
 # --- Main ---
 def main():
