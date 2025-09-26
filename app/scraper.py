@@ -144,7 +144,7 @@ async def handle_order(order, token):
 
     # Playwright
     pw = await async_playwright().start()
-    browser = await pw.chromium.launch(headless=True)
+    browser = await pw.chromium.launch(headless=False)
     context = await browser.new_context(
         ignore_https_errors=True,
         storage_state={"origins": [{
