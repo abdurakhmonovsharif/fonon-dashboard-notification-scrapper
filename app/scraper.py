@@ -1,14 +1,16 @@
 import asyncio
 import json
 import os
+import sys
 from queue import Queue
 import threading
 import requests
 from telebot import TeleBot
 from playwright.async_api import async_playwright
+import time
 
 # === CONFIG ===
-TELEGRAM_TOKEN = "7963750798:AAEIWqBSeivdxywA-Z--721SK5bvxZtA7Po"
+TELEGRAM_TOKEN = "7963750798:AAEn_A95gPEO-xubb-TYgSRIslx_cLFI5cM"
 TELEGRAM_CHAT_ID = 1966138199  # /start orqali aniqlang
 PHONE_NUMBER = "931434413"
 DASHBOARD_URL = "https://dashboard.fonon.uz"
@@ -19,42 +21,24 @@ API_URL = "https://api.fonon.uz/api/v1/orders/all?page=0&size=10"
 code_queue: "Queue[str]" = Queue()
 tb = TeleBot(TELEGRAM_TOKEN, parse_mode="Markdown")
 
+# --- Helpers ---
 def format_phone(phone: str) -> str:
-    # faqat raqamlarni olib qolamiz
     digits = "".join(filter(str.isdigit, phone))
-
-    # agar 12 xonali bo‘lsa (998 bilan boshlansa)
     if digits.startswith("998") and len(digits) == 12:
         return f"{digits[3:5]} {digits[5:8]}-{digits[8:10]}-{digits[10:12]}"
-
-    # agar 9 xonali bo‘lsa (mahalliy format)
     elif len(digits) == 9:
         return f"{digits[0:2]} {digits[2:5]}-{digits[5:7]}-{digits[7:9]}"
-
-    # boshqa holatda original qaytariladi
     return phone
 
 def format_number(num: int, style: str = "comma") -> str:
-    """
-    Sonni formatlash funksiyasi.
-
-    :param num: format qilinadigan son (int yoki float).
-    :param style: 'comma' | 'space' | 'mln'
-    :return: formatlangan string
-    """
-
-    if style == "comma":  # 3,500,000
+    if style == "comma":
         return "{:,}".format(num)
-
-    elif style == "space":  # 3 500 000
+    elif style == "space":
         return "{:,.0f}".format(num).replace(",", " ")
-
-    elif style == "mln":  # 3.5 mln
+    elif style == "mln":
         return f"{num / 1_000_000:.1f} mln"
-
     else:
         raise ValueError("Noto‘g‘ri style! Faqat: 'comma', 'space', 'mln'")
-# --- State helpers ---
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -66,10 +50,38 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-# --- Telegram ---
+# --- Telegram handlers ---
 @tb.message_handler(commands=['start'])
 def start(msg):
     tb.send_message(msg.chat.id, "Salom! SMS kodni shu botga yuboring.")
+
+@tb.message_handler(commands=['change_order'])
+def change_order(msg):
+    if msg.chat.id != TELEGRAM_CHAT_ID:
+        tb.send_message(msg.chat.id, "❌ Sizga ruxsat yo‘q.")
+        return
+    
+    parts = msg.text.strip().split()
+    if len(parts) < 2:
+        tb.send_message(msg.chat.id, "ℹ️ Foydalanish: /change_order <order_id>")
+        return
+    
+    try:
+        new_id = int(parts[1])
+        state = load_state()
+        state["last_order_id"] = new_id
+        save_state(state)
+        tb.send_message(msg.chat.id, f"✅ last_order_id {new_id} ga o‘zgartirildi.")
+    except ValueError:
+        tb.send_message(msg.chat.id, "❌ Order ID son bo‘lishi kerak.")
+
+@tb.message_handler(commands=['restart'])
+def restart_bot(msg):
+    if msg.chat.id != TELEGRAM_CHAT_ID:
+        tb.send_message(msg.chat.id, "❌ Sizga ruxsat yo‘q.")
+        return
+    tb.send_message(msg.chat.id, "🔄 Bot qayta ishga tushmoqda...")
+    os.execv(sys.executable, ['python'] + sys.argv)
 
 @tb.message_handler(func=lambda m: True)
 def handle(msg):
@@ -81,13 +93,22 @@ def handle(msg):
     tb.send_message(msg.chat.id, f"✅ Kod qabul qilindi: {code}")
 
 def telegram_thread():
-    tb.infinity_polling()
+    while True:
+        try:
+            tb.infinity_polling(timeout=30, long_polling_timeout=10, restart_on_change=True)
+        except Exception as e:
+            print("⚠️ Telegram polling xato berdi, 5s dan keyin qayta urinish:", e)
+            time.sleep(5)
 
 def telegram_notify(text: str):
-    try:
-        tb.send_message(TELEGRAM_CHAT_ID, text)
-    except Exception as e:
-        print("Telegram error:", e)
+    for attempt in range(3):
+        try:
+            tb.send_message(TELEGRAM_CHAT_ID, text)
+            return
+        except Exception as e:
+            print(f"Telegram xato (urinish {attempt+1}/3):", e)
+            time.sleep(2)
+    print("❌ Telegramga yuborilmadi (3 urinishdan keyin).")
 
 # --- Login va token olish ---
 async def playwright_login():
@@ -97,22 +118,17 @@ async def playwright_login():
     page = await context.new_page()
 
     await page.goto(DASHBOARD_URL)
-
-    # Telefon raqam
     await page.fill('input[name="phone"]', PHONE_NUMBER)
     await page.click('button[type="submit"]')
     telegram_notify("📲 Kod yuborildi, botga kiriting.")
 
-    # Kod kutish
     loop = asyncio.get_event_loop()
     code = await loop.run_in_executor(None, code_queue.get)
     await page.fill('input[name="otp"]', code)
     await page.click('button[type="submit"]')
 
-    # Login muvaffaqiyatli bo‘lishini kutish
-    await page.wait_for_selector("div.MuiToolbar-root", timeout=20000)
+    await page.wait_for_selector("div.MuiToolbar-root", timeout=30000)
 
-    # Tokenlarni olish
     access_token = await page.evaluate("() => localStorage.getItem('accessToken')")
     refresh_token = await page.evaluate("() => localStorage.getItem('refreshToken')")
 
@@ -120,19 +136,18 @@ async def playwright_login():
         raise Exception("❌ accessToken topilmadi!")
 
     telegram_notify("✅ Login muvaffaqiyatli, token olindi.")
-
     await browser.close()
     return {"token": access_token, "refresh": refresh_token}
 
-# --- Token validligini tekshirish ---
 def is_token_valid(token: str) -> bool:
     try:
-        resp = requests.get(API_URL, headers={"Authorization": f"Bearer {token}"})
+        resp = requests.get(API_URL, headers={"Authorization": f"Bearer {token}"}, timeout=10)
         return resp.status_code != 401
-    except Exception:
+    except Exception as e:
+        print("Token tekshirishda xato:", e)
         return False
 
-# --- Yangi orderni screenshot qilish va jo‘natish ---
+# --- Order ishlovchi ---
 async def handle_order(order, token):
     order_id = order.get("id", "???")
     total_price = order.get("totalPrice", "Noma’lum")
@@ -142,7 +157,6 @@ async def handle_order(order, token):
 
     url = f"https://dashboard.fonon.uz/dashboard/order/{order_id}"
 
-    # Playwright
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(headless=True)
     context = await browser.new_context(
@@ -159,17 +173,15 @@ async def handle_order(order, token):
     await page.goto(url)
     await asyncio.sleep(5)
 
-    # Zoom 80%
     await page.evaluate("document.body.style.zoom='80%'")
     await asyncio.sleep(1)
 
     screenshot_path = f"order_{order_id}.png"
     await page.screenshot(path=screenshot_path, full_page=False)
 
-    # --- Caption tayyorlash ---
     caption = (
         f"📦 Buyurtma #{order_id}\n\n"
-        f"💰 Narxi: {format_number(total_price,"comma")} so'm\n"
+        f"💰 Narxi: {format_number(total_price,'comma')} so'm\n"
         f"🚚 Yetkazib berish: {delivery_type}\n"
         f"👤 Telefon: {format_phone(phone)}\n\n"
         f"📋 Mahsulotlar:\n"
@@ -187,7 +199,6 @@ async def handle_order(order, token):
             f"   🏷️ Seriya: {product_seria}\n"
         )
 
-    # --- Telegramga yuborish ---
     try:
         with open(screenshot_path, "rb") as img:
             tb.send_photo(TELEGRAM_CHAT_ID, img, caption=caption)
@@ -196,21 +207,27 @@ async def handle_order(order, token):
             os.remove(screenshot_path)
 
     await browser.close()
+
+# --- Monitor ---
 async def monitor():
     state = load_state()
 
     while True:
-        # Token yo‘q yoki eskirgan bo‘lsa yangilash
         if not state.get("token") or not is_token_valid(state["token"]):
             tokens = await playwright_login()
             state["token"] = tokens["token"]
             state["refreshToken"] = tokens["refresh"]
             save_state(state)
 
-        # Orders so‘rov
-        headers = {"Authorization": f"Bearer {state['token']}"}
-        resp = requests.get(API_URL, headers=headers)
-        if resp.status_code == 401:  # Token eskirgan
+        try:
+            headers = {"Authorization": f"Bearer {state['token']}"}
+            resp = requests.get(API_URL, headers=headers, timeout=15)
+        except Exception as e:
+            print("API so‘rovda xato:", e)
+            await asyncio.sleep(10)
+            continue
+
+        if resp.status_code == 401:
             tokens = await playwright_login()
             state["token"] = tokens["token"]
             state["refreshToken"] = tokens["refresh"]
@@ -232,7 +249,7 @@ async def monitor():
                 state["last_order_id"] = latest_id
                 save_state(state)
 
-        await asyncio.sleep(60)  # 1 minut kutish
+        await asyncio.sleep(60)
 
 # --- Main ---
 def main():
